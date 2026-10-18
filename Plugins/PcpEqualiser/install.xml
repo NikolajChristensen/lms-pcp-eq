@@ -2,7 +2,7 @@
 <extension>
     <name>PLUGIN_PCPEQUALISER</name>
     <module>Plugins::PcpEqualiser::Plugin</module>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
     <description>PLUGIN_PCPEQUALISER_DESC</description>
     <icon>plugins/PcpEqualiser/html/PcpEqualiser_svg.png</icon>
     <iconsvg>plugins/PcpEqualiser/html/PcpEqualiser.svg</iconsvg>
