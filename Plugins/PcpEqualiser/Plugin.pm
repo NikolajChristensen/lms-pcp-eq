@@ -30,8 +30,10 @@ my $log = Slim::Utils::Log->addLogCategory({
     description  => 'PLUGIN_PCPEQUALISER',
 });
 
-# Each player's values as first seen, before this plugin changed anything,
-# so they can always be restored: { <player id> => { values, device, seen } }
+# originals: each player's values as first seen, before this plugin changed
+#   anything, so they can always be restored: { <player id> => { values, ... } }
+# saved: the values last saved on each player. pCP's page shows what is
+#   playing, which can be unsaved changes, so the plugin keeps track itself.
 my $prefs = preferences('plugin.pcpequaliser');
 
 use constant BANDS   => 10;
@@ -40,7 +42,7 @@ use constant TIMEOUT => 8;
 
 sub initPlugin {
     my $class = shift;
-    $prefs->init({ originals => {} });
+    $prefs->init({ originals => {}, saved => {} });
     $class->SUPER::initPlugin(@_);
 
     return unless main::WEBUI;
@@ -161,9 +163,13 @@ sub _apiPlayers {
     for my $client (@clients) {
         _readEq($client, sub {
             my $eq = shift;
-            my $original = $eq->{status} eq 'ok' ? _original($client, $eq) : undef;
+            my ($original, $saved);
+            if ($eq->{status} eq 'ok') {
+                $original = _original($client, $eq);
+                $saved = ($prefs->get('saved') || {})->{$client->id} || $original->{values};
+            }
             push @players, { id => $client->id, name => $client->name, ip => $client->ip,
-                             %$eq, ($original ? (original => $original) : ()) };
+                             %$eq, ($original ? (original => $original, saved => $saved) : ()) };
             return if --$pending;
             @players = sort { lc($a->{name}) cmp lc($b->{name}) } @players;
             _sendJson($httpClient, $response, { players => \@players });
@@ -209,6 +215,11 @@ sub _apiSet {
 
     _writeEq($client, \@values, $device, $action, sub {
         my ($ok, $err) = @_;
+        if ($ok && $action eq 'Save') {
+            my $saved = $prefs->get('saved') || {};
+            $saved->{$client->id} = [ map { $_ + 0 } @values ];
+            $prefs->set('saved', $saved);
+        }
         _sendJson($httpClient, $response, $ok ? { ok => 1 } : { error => $err || 'failed' }, $ok ? 200 : 502);
     });
 }

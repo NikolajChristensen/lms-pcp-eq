@@ -8,11 +8,17 @@ hear the change.
 - Changes play **while you drag**. On piCorePlayer's own page, nothing changes
   until you press *Test*.
 - **Save** keeps the settings over a restart; **Reset** goes back to the last
-  saved settings. The page shows when there are unsaved changes, draws the
+  saved settings. The plugin remembers what was last saved itself (pCP's page
+  only knows what is playing), so a player still playing unsaved changes
+  from an earlier session is shown as such. The page shows when there are unsaved changes, draws the
   saved curve behind the one you're editing, and asks before you switch
   player or close the page with unsaved changes.
 - Values are shown in dB (one step is 0.72 dB; flat is pCP's default of 66),
-  with −/+ buttons for fine steps.
+  with −/+ buttons for fine steps. Tap a band's dB value to set it to 0 dB;
+  *Flat* sets all bands to 0 dB.
+- Sliders only move when you **drag the handle**: tapping the track does
+  nothing and swiping up or down scrolls the page, so a stray touch can't
+  change the sound.
 - A graph of the equaliser's **actual effect**, computed from its filters
   (CAPS Eq10: ten overlapping bandpass filters added together), with the
   slider settings as dots. Neighbouring bands overlap, so a band's effect is

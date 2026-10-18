@@ -47,10 +47,17 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .band label { grid-area: name; font-weight: 600; font-variant-numeric: tabular-nums; }
 .band .db { grid-area: db; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 .band .db.boost { color: var(--warn); }
+.band button.db { width: auto; font-size: inherit; padding: 4px 6px; border-color: transparent; background: none; }
+.band button.db:not(:disabled):hover { border-color: var(--line); }
 .band button { padding: 4px 0; width: 40px; font-size: 18px; line-height: 1; }
 .band button.down { grid-area: down; } .band button.up { grid-area: up; }
-.band input[type=range] { grid-area: slider; }
+
 input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; margin: 2px 0 0; }
+/* Sliders move only when you drag the handle: the input ignores pointers,
+   the wrapper below decides (see grabSlider). Vertical swipes scroll. */
+.track { grid-area: slider; touch-action: pan-y; }
+.track input { pointer-events: none; display: block; }
+.track.dragging input { accent-color: var(--warn); }
 .note { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
 .note.warn { color: var(--warn); }
 .hidden { display: none !important; }
@@ -88,6 +95,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
       </div>
       <p class="note">The graph shows the equaliser's actual effect, worked out from its filters; dots are the
         slider settings. Neighbouring bands overlap, so a band's effect is wider and often smaller than its slider.</p>
+      <p class="note">Move a slider by dragging its handle; tap a band's dB value to set it to 0 dB. Flat sets all bands to 0 dB.</p>
       <p class="note">Changes play straight away. They are only kept over a restart when you press Save;
         Reset goes back to the last saved settings. One step is 0.72 dB.</p>
       <p class="note warn hidden" id="boostnote">Boosting above flat can distort loud passages. Lowering the
@@ -154,7 +162,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
   }
 
   function select(p) {
-    current = p; values = p.values.slice(); saved = p.values.slice();
+    current = p; values = p.values.slice(); saved = (p.saved || p.values).slice();
     store('pcpeq.player', p.id);
     buildBands(); renderAll();
     var ps = $('presets'); ps.innerHTML = '<option value="">pCP presets…</option>';
@@ -163,6 +171,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
     });
     $('eq').classList.remove('hidden');
     status(p.name + (p.pcp ? ' · piCorePlayer ' + p.pcp : '') + ' · ' + p.ip);
+    if (dirty()) status(p.name + ' is playing unsaved changes. Save keeps them; Reset goes back to the saved settings.', 'err');
   }
 
   // Before switching player or reloading: the player keeps playing unsaved
@@ -171,10 +180,11 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
     if (!dirty()) return Promise.resolve();
     var p = current, vals = values.slice();
     if (window.confirm('Save the changes on ' + p.name + '?\n\nOK saves them. Cancel goes back to its saved settings.')) {
-      return send(p, vals, 'Save').then(function () { p.values = vals; })
+      return send(p, vals, 'Save').then(function () { p.values = vals; p.saved = vals.slice(); })
         .catch(function (e) { status('Saving on ' + p.name + ' failed: ' + e.message, 'err'); });
     }
-    return send(p, saved.slice(), 'Test').catch(function () {});
+    var back = saved.slice();
+    return send(p, back, 'Test').then(function () { p.values = back; }).catch(function () {});
   }
 
   // ── Sliders ──
@@ -183,16 +193,44 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
     BANDS.forEach(function (name, i) {
       var row = document.createElement('div'); row.className = 'band';
       row.innerHTML = '<label for="b' + i + '">' + name + '</label>' +
-        '<span class="db"></span>' +
+        '<button class="db" title="Tap to set this band to 0 dB"></button>' +
         '<button class="down" aria-label="' + name + ' down">−</button>' +
         '<button class="up" aria-label="' + name + ' up">+</button>' +
-        '<input type="range" id="b' + i + '" min="0" max="100" step="1">';
-      var input = row.querySelector('input'), btns = row.querySelectorAll('button');
-      input.addEventListener('input', function () { change(i, +input.value); });
+        '<div class="track"><input type="range" id="b' + i + '" min="0" max="100" step="1"></div>';
+      var input = row.querySelector('input'), btns = row.querySelectorAll('button.down, button.up');
+      input.addEventListener('input', function () { change(i, +input.value); });   // keyboard
+      grabSlider(row.querySelector('.track'), input, i);
+      row.querySelector('.db').addEventListener('click', function () { change(i, FLAT); });
       btns[0].addEventListener('click', function () { change(i, values[i] - 1); });
       btns[1].addEventListener('click', function () { change(i, values[i] + 1); });
       box.appendChild(row);
     });
+  }
+
+  // Start a drag only when the press lands on the handle (within 24 px of
+  // its centre). The handle then follows the finger relative to where it
+  // was grabbed, so it never jumps.
+  var THUMB_R = 8, HIT = 24;
+  function grabSlider(track, input, i) {
+    var drag = null;
+    track.addEventListener('pointerdown', function (e) {
+      var r = input.getBoundingClientRect(), span = r.width - 2 * THUMB_R;
+      var thumbX = r.left + THUMB_R + values[i] / 100 * span;
+      if (Math.abs(e.clientX - thumbX) > HIT) return;
+      drag = { x: e.clientX, v: values[i], span: span };
+      track.setPointerCapture(e.pointerId);
+      track.classList.add('dragging');
+      e.preventDefault();
+    });
+    var end = function () { drag = null; track.classList.remove('dragging'); };
+    track.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      if (!e.buttons) return end();     // released somewhere we didn't hear about
+      change(i, Math.round(drag.v + (e.clientX - drag.x) / drag.span * 100));
+    });
+    track.addEventListener('pointerup', end);
+    track.addEventListener('pointercancel', end);
+    track.addEventListener('lostpointercapture', end);
   }
 
   function change(i, v) {
@@ -213,6 +251,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
       var db = rows[i].querySelector('.db');
       db.textContent = dbText(values[i]);
       db.className = 'db' + (values[i] > FLAT ? ' boost' : '');
+      db.disabled = values[i] === FLAT;
     }
     $('boostnote').classList.toggle('hidden', Math.max.apply(null, values) <= FLAT + 4);
     var orig = current && current.original;
@@ -324,7 +363,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
     var p = current, vals = values.slice();
     saving = true; renderAll();
     send(p, vals, 'Save').then(function () {
-      saved = vals; p.values = vals.slice();
+      saved = vals; p.values = vals.slice(); p.saved = vals.slice();
       status('Saved on ' + p.name + ' - kept after a restart.', 'ok');
     }).catch(function (e) {
       status('Saving failed: ' + e.message + ' (it is still playing like this)', 'err');
