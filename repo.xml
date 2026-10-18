@@ -4,14 +4,14 @@
     <title lang="EN">Player Equaliser for piCorePlayer</title>
   </details>
   <plugins>
-    <plugin name="PcpEqualiser" version="0.3.1" minTarget="8.0" maxTarget="*">
+    <plugin name="PcpEqualiser" version="0.4.0" minTarget="8.0" maxTarget="*">
       <title lang="EN">Player Equaliser</title>
       <desc lang="EN">Live 10-band equaliser for piCorePlayer players: changes play while you drag the sliders.</desc>
       <changes lang="EN">Sliders only move when you drag the handle (taps on the track are ignored, vertical swipes scroll). Tap a band's dB value to set it to 0 dB. Reset now goes back to what was really saved, even after leaving the page with unsaved changes.</changes>
       <creator>NikolajChristensen</creator>
       <category>tools</category>
-      <url>https://github.com/NikolajChristensen/lms-pcp-eq/releases/download/v0.3.1/PcpEqualiser-0.3.1.zip</url>
-      <sha>b6eea0cfaa372b8cf421dc9d34586330c978616c</sha>
+      <url>https://github.com/NikolajChristensen/lms-pcp-eq/releases/download/v0.4.0/PcpEqualiser-0.4.0.zip</url>
+      <sha>b9898b15576f5b5628ef6ac1c47908cfc06e0b90</sha>
     </plugin>
   </plugins>
 </extensions>
