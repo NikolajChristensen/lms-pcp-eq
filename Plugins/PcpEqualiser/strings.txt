@@ -2,5 +2,5 @@ PLUGIN_PCPEQUALISER
 	EN	Player Equaliser
 
 PLUGIN_PCPEQUALISER_DESC
-	EN	Live 10-band equaliser for piCorePlayer players: changes play while you drag the sliders and are saved by themselves
+	EN	Live 10-band equaliser for piCorePlayer players: changes play while you drag the sliders
 

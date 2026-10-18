@@ -7,12 +7,15 @@ hear the change.
 
 - Changes play **while you drag**. On piCorePlayer's own page, nothing changes
   until you press *Test*.
-- Settings are **saved by themselves** a few seconds after you stop, so they
-  survive a restart. No *Save* button to forget.
+- **Save** keeps the settings over a restart; **Reset** goes back to the last
+  saved settings. The page shows when there are unsaved changes, draws the
+  saved curve behind the one you're editing, and asks before you switch
+  player or close the page with unsaved changes.
 - Values are shown in dB (one step is 0.72 dB; flat is pCP's default of 66).
   There are −/+ buttons for fine steps and a curve showing the overall shape.
 - **Restore original**: the first time the plugin sees a player, it records
-  that player's equaliser settings, so you can always go back to them.
+  that player's equaliser settings, so you can always go back to them (then
+  press Save to keep them).
 - pCP's presets (from `/home/tc/.alsaequal.presets` on the player) can be
   applied with one tap.
 

@@ -42,6 +42,11 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
 .note { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
 .note.warn { color: var(--warn); }
 .hidden { display: none !important; }
+#savebar { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; padding: 10px 14px;
+           background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px;
+           box-shadow: 0 -2px 10px rgba(0,0,0,.12); }
+#savebar .msg { flex: 1; font-size: 13px; color: var(--muted); }
+#savebar.dirty .msg { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -69,10 +74,16 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
         <button id="restore" class="hidden" title="The values this player had before you first changed them here">Restore original</button>
         <select id="presets" aria-label="pCP presets"><option value="">pCP presets…</option></select>
       </div>
-      <p class="note">Changes play straight away and are kept over a restart a few seconds after you stop.
-        One step is 0.72 dB.</p>
+      <p class="note">Changes play straight away. They are only kept over a restart when you press Save;
+        Reset goes back to the last saved settings. One step is 0.72 dB.</p>
       <p class="note warn hidden" id="boostnote">Boosting above flat can distort loud passages. Lowering the
         other bands instead keeps the same balance with less risk.</p>
+    </div>
+
+    <div id="savebar">
+      <span class="msg" id="savemsg">No unsaved changes</span>
+      <button id="reset" disabled>Reset</button>
+      <button id="save" class="primary" disabled>Save</button>
     </div>
   </div>
 </main>
@@ -82,17 +93,17 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
   'use strict';
   var API = 'api/';
   var BANDS = ['31 Hz', '63 Hz', '125 Hz', '250 Hz', '500 Hz', '1 kHz', '2 kHz', '4 kHz', '8 kHz', '16 kHz'];
-  var FLAT = 66, STEP_DB = 0.72, SAVE_AFTER_MS = 4000, APPLY_EVERY_MS = 150;
+  var FLAT = 66, STEP_DB = 0.72, APPLY_EVERY_MS = 150;
 
   var $ = function (id) { return document.getElementById(id); };
-  var players = [], current = null, values = [];
-  var applying = false, applyQueued = false, lastApply = 0, applyTimer = null;
-  var saveTimer = null, dirtySinceSave = false;
+  var players = [], current = null, values = [], saved = [];
+  var applying = false, applyQueued = false, lastApply = 0, applyTimer = null, saving = false;
 
   function store(key, val) { try { if (val === undefined) return localStorage.getItem(key); localStorage.setItem(key, val); } catch (e) { return null; } }
 
   function status(text, cls) { var el = $('status'); el.textContent = text; el.className = cls || ''; }
   function dbText(v) { var d = (v - FLAT) * STEP_DB; return (d > 0.05 ? '+' : d < -0.05 ? '' : '±') + d.toFixed(1) + ' dB'; }
+  function dirty() { return current && values.join() !== saved.join(); }
 
   function api(path) {
     return fetch(API + path, { cache: 'no-store' }).then(function (r) {
@@ -115,12 +126,13 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
         sel.appendChild(o);
       });
       if (!usable.length) {
+        current = null;
         $('eq').classList.add('hidden');
         status(players.length ? 'No player has the piCorePlayer equaliser switched on (pCP: Tweaks > Use 10 band ALSA equalizer).'
                               : 'No players are connected.', 'err');
         return;
       }
-      var want = store('pcpeq.player');
+      var want = (current && current.id) || store('pcpeq.player');
       var pick = usable.filter(function (p) { return p.id === want; })[0] || usable[0];
       sel.value = pick.id;
       select(pick);
@@ -128,8 +140,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
   }
 
   function select(p) {
-    flushSave();
-    current = p; values = p.values.slice();
+    current = p; values = p.values.slice(); saved = p.values.slice();
     store('pcpeq.player', p.id);
     buildBands(); renderAll();
     var ps = $('presets'); ps.innerHTML = '<option value="">pCP presets…</option>';
@@ -138,6 +149,18 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
     });
     $('eq').classList.remove('hidden');
     status(p.name + (p.pcp ? ' · piCorePlayer ' + p.pcp : '') + ' · ' + p.ip);
+  }
+
+  // Before switching player or reloading: the player keeps playing unsaved
+  // changes until it restarts, so ask whether to save or drop them.
+  function settleUnsaved() {
+    if (!dirty()) return Promise.resolve();
+    var p = current, vals = values.slice();
+    if (window.confirm('Save the changes on ' + p.name + '?\n\nOK saves them. Cancel goes back to its saved settings.')) {
+      return send(p, vals, 'Save').then(function () { p.values = vals; })
+        .catch(function (e) { status('Saving on ' + p.name + ' failed: ' + e.message, 'err'); });
+    }
+    return send(p, saved.slice(), 'Test').catch(function () {});
   }
 
   // ── Sliders ──
@@ -164,7 +187,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
     values[i] = v; renderAll(); scheduleApply();
   }
 
-  function setAll(list) { values = list.slice(); renderAll(); scheduleApply(); }
+  function setAll(list) {
+    if (list.join() === values.join()) return;
+    values = list.slice(); renderAll(); scheduleApply();
+  }
 
   function renderAll() {
     var rows = $('bands').children;
@@ -177,6 +203,11 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
     $('boostnote').classList.toggle('hidden', Math.max.apply(null, values) <= FLAT + 4);
     var orig = current && current.original;
     $('restore').classList.toggle('hidden', !orig || orig.values.join() === values.join());
+    var d = dirty();
+    $('savebar').classList.toggle('dirty', !!d);
+    $('savemsg').textContent = saving ? 'Saving…' : d ? 'Unsaved changes - playing live' : 'Saved settings';
+    $('save').disabled = !d || saving;
+    $('reset').disabled = !d || saving;
     drawCurve();
   }
 
@@ -184,66 +215,66 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
     var w = 300, h = 120, pad = 10, min = FLAT - 25, max = FLAT + 25;
     var y = function (v) { v = Math.max(min, Math.min(max, v)); return h - pad - (v - min) / (max - min) * (h - 2 * pad); };
     var x = function (i) { return pad + i * (w - 2 * pad) / (BANDS.length - 1); };
-    var pts = values.map(function (v, i) { return x(i).toFixed(1) + ',' + y(v).toFixed(1); }).join(' ');
+    var line = function (list, stroke, extra) {
+      return '<polyline points="' + list.map(function (v, i) { return x(i).toFixed(1) + ',' + y(v).toFixed(1); }).join(' ') +
+             '" fill="none" stroke="' + stroke + '" stroke-linejoin="round" vector-effect="non-scaling-stroke" ' + extra + '/>';
+    };
     $('curve').innerHTML =
       '<line x1="0" x2="' + w + '" y1="' + y(FLAT) + '" y2="' + y(FLAT) + '" stroke="var(--flat)" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>' +
-      '<polyline points="' + pts + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+      (dirty() ? line(saved, 'var(--muted)', 'stroke-width="1.5" stroke-dasharray="2 3"') : '') +
+      line(values, 'var(--accent)', 'stroke-width="2.5"');
   }
 
-  // ── Applying and saving ──
+  // ── Playing and saving ──
   // While you drag, the latest values go to the player at most every 150 ms
-  // (pCP "Test"); 4 s after the last change they are saved (pCP "Save").
+  // (pCP "Test"). Only Save (pCP "Save") keeps them over a restart.
   function scheduleApply() {
-    dirtySinceSave = true;
-    clearTimeout(saveTimer);
     if (applying) { applyQueued = true; return; }
     clearTimeout(applyTimer);
     applyTimer = setTimeout(apply, Math.max(0, APPLY_EVERY_MS - (Date.now() - lastApply)));
   }
 
-  function send(action, keepalive) {
-    var q = 'set?player=' + encodeURIComponent(current.id) + '&values=' + values.join(',') +
-            '&device=' + encodeURIComponent(current.device || 'equal') + '&action=' + action;
-    if (keepalive) { try { fetch(API + q, { keepalive: true }); } catch (e) {} return Promise.resolve(); }
-    return api(q);
+  function send(player, vals, action) {
+    return api('set?player=' + encodeURIComponent(player.id) + '&values=' + vals.join(',') +
+               '&device=' + encodeURIComponent(player.device || 'equal') + '&action=' + action);
   }
 
   function apply() {
     applying = true; lastApply = Date.now();
-    send('Test').then(function () {
-      status('Playing these settings…');
-    }).catch(function (e) {
-      status('Could not reach ' + current.name + ': ' + e.message, 'err');
+    var p = current;
+    send(p, values, 'Test').catch(function (e) {
+      status('Could not reach ' + p.name + ': ' + e.message, 'err');
     }).then(function () {
       applying = false;
-      if (applyQueued) { applyQueued = false; scheduleApply(); return; }
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(save, SAVE_AFTER_MS);
+      if (applyQueued) { applyQueued = false; scheduleApply(); }
     });
   }
 
   function save() {
-    if (!dirtySinceSave || applying) return;
-    status('Saving…');
-    send('Save').then(function () {
-      dirtySinceSave = false;
-      current.values = values.slice();
-      status('Saved on ' + current.name + ' - kept after a restart.', 'ok');
-    }).catch(function (e) { status('Saving failed: ' + e.message + ' (it is still playing like this)', 'err'); });
+    var p = current, vals = values.slice();
+    saving = true; renderAll();
+    send(p, vals, 'Save').then(function () {
+      saved = vals; p.values = vals.slice();
+      status('Saved on ' + p.name + ' - kept after a restart.', 'ok');
+    }).catch(function (e) {
+      status('Saving failed: ' + e.message + ' (it is still playing like this)', 'err');
+    }).then(function () { saving = false; renderAll(); });
   }
 
-  // Leaving or switching player with unsaved changes: save right away.
-  function flushSave() {
-    if (current && dirtySinceSave) { clearTimeout(saveTimer); send('Save', true); dirtySinceSave = false; }
-  }
-  window.addEventListener('pagehide', flushSave);
+  // Closing the page with unsaved changes: the browser asks first.
+  window.addEventListener('beforeunload', function (e) {
+    if (dirty()) { e.preventDefault(); e.returnValue = ''; }
+  });
 
   // ── Controls ──
   $('player').addEventListener('change', function () {
     var p = players.filter(function (x) { return x.id === $('player').value; })[0];
-    if (p) select(p);
+    if (!p) return;
+    settleUnsaved().then(function () { select(p); });
   });
-  $('reload').addEventListener('click', function () { flushSave(); loadPlayers(); });
+  $('reload').addEventListener('click', function () { settleUnsaved().then(loadPlayers); });
+  $('save').addEventListener('click', save);
+  $('reset').addEventListener('click', function () { setAll(saved); });
   $('flat').addEventListener('click', function () { setAll(BANDS.map(function () { return FLAT; })); });
   $('restore').addEventListener('click', function () { if (current.original) setAll(current.original.values); });
   $('presets').addEventListener('change', function () {

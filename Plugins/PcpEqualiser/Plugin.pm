@@ -5,7 +5,7 @@ package Plugins::PcpEqualiser::Plugin;
 # piCorePlayer's own equaliser page only applies the sliders when you press
 # Test, and only keeps them over a reboot when you press Save. This plugin
 # serves a page (plugins/PcpEqualiser/index.html) whose sliders are applied
-# while you drag them and saved by themselves shortly after you stop. It
+# while you drag them; Save keeps them, Reset goes back to the saved ones. It
 # talks to each player through the same requests pCP's page sends
 # (cgi-bin/xtras_alsaequal.cgi), so nothing needs installing on the players.
 #
