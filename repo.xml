@@ -7,7 +7,7 @@
     <plugin name="PcpEqualiser" version="0.2.0" minTarget="8.0" maxTarget="*">
       <title lang="EN">Player Equaliser</title>
       <desc lang="EN">Live 10-band equaliser for piCorePlayer players: changes play while you drag the sliders.</desc>
-      <changes lang="EN">Changes are no longer saved automatically: Save keeps them over a restart, Reset goes back to the last saved settings. The page shows unsaved changes and asks before you switch player or leave.</changes>
+      <changes lang="EN">The graph now shows the equaliser's actual effect, computed from its filters, including how wide each band reaches and how neighbouring bands overlap; slider settings are shown as dots.</changes>
       <creator>NikolajChristensen</creator>
       <category>tools</category>
       <url>https://github.com/NikolajChristensen/lms-pcp-eq/releases/download/v0.2.0/PcpEqualiser-0.2.0.zip</url>

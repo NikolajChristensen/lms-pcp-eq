@@ -11,8 +11,14 @@ hear the change.
   saved settings. The page shows when there are unsaved changes, draws the
   saved curve behind the one you're editing, and asks before you switch
   player or close the page with unsaved changes.
-- Values are shown in dB (one step is 0.72 dB; flat is pCP's default of 66).
-  There are −/+ buttons for fine steps and a curve showing the overall shape.
+- Values are shown in dB (one step is 0.72 dB; flat is pCP's default of 66),
+  with −/+ buttons for fine steps.
+- A graph of the equaliser's **actual effect**, computed from its filters
+  (CAPS Eq10: ten overlapping bandpass filters added together), with the
+  slider settings as dots. Neighbouring bands overlap, so a band's effect is
+  wider and usually smaller than its slider: a −8 dB cut at 125 Hz, for
+  example, lowers that region by about 3 dB. While you have unsaved changes,
+  the saved curve is shown dotted behind it.
 - **Restore original**: the first time the plugin sees a player, it records
   that player's equaliser settings, so you can always go back to them (then
   press Save to keep them).

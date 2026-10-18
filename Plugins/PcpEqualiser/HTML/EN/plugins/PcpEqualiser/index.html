@@ -28,7 +28,9 @@ button:disabled { opacity: .45; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 #status { font-size: 13px; color: var(--muted); min-height: 1.4em; margin-top: 8px; }
 #status.ok { color: var(--ok); } #status.err { color: var(--warn); }
-svg { width: 100%; height: 120px; display: block; }
+#curve { width: 100%; height: 180px; display: block; }
+#curve text { font-size: 10px; fill: var(--muted); }
+.legend { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
 .band { display: grid; grid-template-columns: 1fr auto 40px 40px; grid-template-areas: "name db down up" "slider slider slider slider";
         column-gap: 8px; align-items: center; padding: 6px 0 2px; }
 .band + .band { border-top: 1px solid var(--line); }
@@ -63,7 +65,9 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
 
   <div id="eq" class="hidden">
     <div class="card">
-      <svg id="curve" viewBox="0 0 300 120" preserveAspectRatio="none" aria-hidden="true"></svg>
+      <svg id="curve" aria-hidden="true"></svg>
+      <p class="legend">The line is the equaliser's actual effect, worked out from its filters; dots are the slider
+        settings. Neighbouring bands overlap, so a band's effect is wider and often smaller than its slider.</p>
     </div>
 
     <div class="card" id="bands"></div>
@@ -211,19 +215,75 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
     drawCurve();
   }
 
-  function drawCurve() {
-    var w = 300, h = 120, pad = 10, min = FLAT - 25, max = FLAT + 25;
-    var y = function (v) { v = Math.max(min, Math.min(max, v)); return h - pad - (v - min) / (max - min) * (h - 2 * pad); };
-    var x = function (i) { return pad + i * (w - 2 * pad) / (BANDS.length - 1); };
-    var line = function (list, stroke, extra) {
-      return '<polyline points="' + list.map(function (v, i) { return x(i).toFixed(1) + ',' + y(v).toFixed(1); }).join(' ') +
-             '" fill="none" stroke="' + stroke + '" stroke-linejoin="round" vector-effect="non-scaling-stroke" ' + extra + '/>';
-    };
-    $('curve').innerHTML =
-      '<line x1="0" x2="' + w + '" y1="' + y(FLAT) + '" y2="' + y(FLAT) + '" stroke="var(--flat)" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>' +
-      (dirty() ? line(saved, 'var(--muted)', 'stroke-width="1.5" stroke-dasharray="2 3"') : '') +
-      line(values, 'var(--accent)', 'stroke-width="2.5"');
+  // ── Response curve ──
+  // pCP's equaliser is CAPS Eq10: ten 2-pole bandpass filters (Q 0.707,
+  // centres 31.25 Hz x 2^n) run in parallel and summed, each scaled by its
+  // gain and a fixed trim. Their responses overlap and add as complex
+  // numbers, so the curve is computed from the filters, not drawn through
+  // the slider points. Shown relative to all-flat (every slider at 66).
+  var FS = 44100, Q = 0.707;
+  var TRIM = [0.692386, 0.672828, 0.672152, 0.657686, 0.659881, 0.663596, 0.664851, 0.658903, 0.649323, 0.823057];
+  var FILTERS = TRIM.map(function (t, i) {
+    var th = 2 * Math.PI * 31.25 * Math.pow(2, i) / FS, b = (Q - th / 2) / (2 * Q + th);
+    return { a: (0.5 - b) / 2, b: b, c: (0.5 + b) * Math.cos(th), trim: t };
+  });
+  var FREQS = [];
+  for (var k = 0; k <= 240; k++) FREQS.push(20 * Math.pow(1000, k / 240));   // 20 Hz - 20 kHz
+  // Each filter's complex response at each frequency, computed once
+  var BANDRESP = FILTERS.map(function (f) {
+    return FREQS.map(function (hz) {
+      var w = 2 * Math.PI * hz / FS, c1 = Math.cos(w), s1 = Math.sin(w), c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
+      var nr = 2 * f.a * (1 - c2), ni = 2 * f.a * s2;                        // 2a(1 - z^-2)
+      var dr = 1 - 2 * f.c * c1 + 2 * f.b * c2, di = 2 * f.c * s1 - 2 * f.b * s2;  // 1 - 2c z^-1 + 2b z^-2
+      var dd = dr * dr + di * di;
+      return [(nr * dr + ni * di) / dd * f.trim, (ni * dr - nr * di) / dd * f.trim];
+    });
+  });
+  function response(list) {
+    var g = list.map(function (v) { return Math.pow(10, (v - FLAT) * STEP_DB / 20); });
+    return FREQS.map(function (hz, k) {
+      var re = 0, im = 0, re0 = 0, im0 = 0;
+      for (var i = 0; i < 10; i++) {
+        var h = BANDRESP[i][k];
+        re += g[i] * h[0]; im += g[i] * h[1]; re0 += h[0]; im0 += h[1];
+      }
+      return 10 * Math.log10((re * re + im * im) / (re0 * re0 + im0 * im0));
+    });
   }
+
+  function drawCurve() {
+    var svg = $('curve'), w = svg.clientWidth || 340, h = 180, l = 30, r = 6, t = 8, b = 18;
+    var now = response(values), was = dirty() ? response(saved) : null;
+    var settings = values.map(function (v) { return (v - FLAT) * STEP_DB; });
+    var peak = Math.max(6, Math.max.apply(null, now.concat(settings, was || []).map(Math.abs)));
+    var range = Math.ceil(peak / 6) * 6;
+    var x = function (hz) { return l + (Math.log(hz / 20) / Math.log(1000)) * (w - l - r); };
+    var y = function (db) { return t + (range - db) / (2 * range) * (h - t - b); };
+    var path = function (resp) {
+      return resp.map(function (db, k) { return (k ? 'L' : 'M') + x(FREQS[k]).toFixed(1) + ' ' + y(db).toFixed(1); }).join('');
+    };
+    var out = '';
+    for (var d = -range; d <= range; d += range > 12 ? 12 : 6) {
+      out += '<line x1="' + l + '" x2="' + (w - r) + '" y1="' + y(d) + '" y2="' + y(d) + '"' +
+             (d === 0 ? ' stroke="var(--flat)" stroke-dasharray="4 4"' : ' stroke="var(--line)"') + '/>' +
+             '<text x="' + (l - 4) + '" y="' + (y(d) + 3) + '" text-anchor="end">' + (d > 0 ? '+' : '') + d + '</text>';
+    }
+    [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(function (hz) {
+      out += '<line x1="' + x(hz) + '" x2="' + x(hz) + '" y1="' + t + '" y2="' + (h - b) + '" stroke="var(--line)"/>' +
+             '<text x="' + x(hz) + '" y="' + (h - 4) + '" text-anchor="middle">' + (hz >= 1000 ? hz / 1000 + 'k' : hz) + '</text>';
+    });
+    if (was) out += '<path d="' + path(was) + '" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="3 3"/>';
+    var zero = y(0).toFixed(1);
+    out += '<path d="' + path(now) + 'L' + x(20000).toFixed(1) + ' ' + zero + 'L' + x(20).toFixed(1) + ' ' + zero +
+           'Z" fill="var(--accent)" fill-opacity=".14" stroke="none"/>';
+    out += '<path d="' + path(now) + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>';
+    settings.forEach(function (db, i) {
+      out += '<circle cx="' + x(31.25 * Math.pow(2, i)).toFixed(1) + '" cy="' + y(db).toFixed(1) + '" r="3.5" fill="var(--card)" stroke="var(--accent)" stroke-width="1.5"/>';
+    });
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    svg.innerHTML = out;
+  }
+  window.addEventListener('resize', function () { if (current) drawCurve(); });
 
   // ── Playing and saving ──
   // While you drag, the latest values go to the player at most every 150 ms
