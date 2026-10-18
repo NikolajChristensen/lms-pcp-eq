@@ -162,7 +162,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
   }
 
   function select(p) {
-    current = p; values = p.values.slice(); saved = (p.saved || p.values).slice();
+    current = p; values = p.values.map(Number); saved = (p.saved || p.values).map(Number);
     store('pcpeq.player', p.id);
     buildBands(); renderAll();
     var ps = $('presets'); ps.innerHTML = '<option value="">pCP presets…</option>';
@@ -385,7 +385,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; marg
   $('save').addEventListener('click', save);
   $('reset').addEventListener('click', function () { setAll(saved); });
   $('flat').addEventListener('click', function () { setAll(BANDS.map(function () { return FLAT; })); });
-  $('restore').addEventListener('click', function () { if (current.original) setAll(current.original.values); });
+  $('restore').addEventListener('click', function () { if (current.original) setAll(current.original.values.map(Number)); });
   $('presets').addEventListener('change', function () {
     var v = $('presets').value; $('presets').value = '';
     if (v) setAll(v.split(',').map(Number));

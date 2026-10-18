@@ -168,13 +168,23 @@ sub _apiPlayers {
                 $original = _original($client, $eq);
                 $saved = ($prefs->get('saved') || {})->{$client->id} || $original->{values};
             }
-            push @players, { id => $client->id, name => $client->name, ip => $client->ip,
-                             %$eq, ($original ? (original => $original, saved => $saved) : ()) };
+            push @players, { id => $client->id, name => $client->name, ip => $client->ip, %$eq,
+                             ($original ? (original => { %$original, values => _numbers($original->{values}) },
+                                           saved    => _numbers($saved)) : ()) };
+            $players[-1]{values} = _numbers($eq->{values}) if $eq->{values};
             return if --$pending;
             @players = sort { lc($a->{name}) cmp lc($b->{name}) } @players;
             _sendJson($httpClient, $response, { players => \@players });
         });
     }
+}
+
+# A copy of a list of values as JSON numbers. Perl turns a number into a
+# string as soon as it is used as one (logged, joined...), and JSON::XS then
+# sends "66" - which the page's arithmetic would treat as text.
+sub _numbers {
+    my $list = shift or return;
+    return [ map { 0 + $_ } @$list ];
 }
 
 # The player's values from the first time the plugin saw it, recorded now
