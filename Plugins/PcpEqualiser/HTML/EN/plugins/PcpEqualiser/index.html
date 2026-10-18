@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Player Equaliser</title>
+<style>
+:root {
+  --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e2e2de;
+  --accent: #2f6fdf; --accent-soft: #dce7fb; --warn: #b25b00; --ok: #2c7a3f; --flat: #b9b9b4;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151516; --card: #1f1f21; --text: #ececee; --muted: #9a9aa0; --line: #333336;
+          --accent: #6f9dff; --accent-soft: #24324d; --warn: #f0a050; --ok: #6cc584; --flat: #55555a; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 640px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 4px 0 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+select, button { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line);
+                 border-radius: 8px; padding: 7px 10px; }
+select { flex: 1; min-width: 0; }
+button { cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+#status { font-size: 13px; color: var(--muted); min-height: 1.4em; margin-top: 8px; }
+#status.ok { color: var(--ok); } #status.err { color: var(--warn); }
+svg { width: 100%; height: 120px; display: block; }
+.band { display: grid; grid-template-columns: 1fr auto 40px 40px; grid-template-areas: "name db down up" "slider slider slider slider";
+        column-gap: 8px; align-items: center; padding: 6px 0 2px; }
+.band + .band { border-top: 1px solid var(--line); }
+.band label { grid-area: name; font-weight: 600; font-variant-numeric: tabular-nums; }
+.band .db { grid-area: db; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.band .db.boost { color: var(--warn); }
+.band button { padding: 4px 0; width: 40px; font-size: 18px; line-height: 1; }
+.band button.down { grid-area: down; } .band button.up { grid-area: up; }
+.band input[type=range] { grid-area: slider; }
+input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; margin: 2px 0 0; }
+.note { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+.note.warn { color: var(--warn); }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Player Equaliser</h1>
+
+  <div class="card">
+    <div class="row">
+      <select id="player" aria-label="Player"></select>
+      <button id="reload" title="Look for players again">Refresh</button>
+    </div>
+    <div id="status">Looking for piCorePlayer players…</div>
+  </div>
+
+  <div id="eq" class="hidden">
+    <div class="card">
+      <svg id="curve" viewBox="0 0 300 120" preserveAspectRatio="none" aria-hidden="true"></svg>
+    </div>
+
+    <div class="card" id="bands"></div>
+
+    <div class="card">
+      <div class="row">
+        <button id="flat">Flat</button>
+        <button id="restore" class="hidden" title="The values this player had before you first changed them here">Restore original</button>
+        <select id="presets" aria-label="pCP presets"><option value="">pCP presets…</option></select>
+      </div>
+      <p class="note">Changes play straight away and are kept over a restart a few seconds after you stop.
+        One step is 0.72 dB.</p>
+      <p class="note warn hidden" id="boostnote">Boosting above flat can distort loud passages. Lowering the
+        other bands instead keeps the same balance with less risk.</p>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var API = 'api/';
+  var BANDS = ['31 Hz', '63 Hz', '125 Hz', '250 Hz', '500 Hz', '1 kHz', '2 kHz', '4 kHz', '8 kHz', '16 kHz'];
+  var FLAT = 66, STEP_DB = 0.72, SAVE_AFTER_MS = 4000, APPLY_EVERY_MS = 150;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var players = [], current = null, values = [];
+  var applying = false, applyQueued = false, lastApply = 0, applyTimer = null;
+  var saveTimer = null, dirtySinceSave = false;
+
+  function store(key, val) { try { if (val === undefined) return localStorage.getItem(key); localStorage.setItem(key, val); } catch (e) { return null; } }
+
+  function status(text, cls) { var el = $('status'); el.textContent = text; el.className = cls || ''; }
+  function dbText(v) { var d = (v - FLAT) * STEP_DB; return (d > 0.05 ? '+' : d < -0.05 ? '' : '±') + d.toFixed(1) + ' dB'; }
+
+  function api(path) {
+    return fetch(API + path, { cache: 'no-store' }).then(function (r) {
+      return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || r.status); return d; });
+    });
+  }
+
+  // ── Players ──
+  function loadPlayers() {
+    status('Looking for piCorePlayer players…');
+    api('players').then(function (d) {
+      players = d.players || [];
+      var sel = $('player'); sel.innerHTML = '';
+      var usable = players.filter(function (p) { return p.status === 'ok'; });
+      players.forEach(function (p) {
+        var o = document.createElement('option');
+        o.value = p.id;
+        o.textContent = p.name + (p.status === 'ok' ? '' : p.status === 'no_eq' ? ' (equaliser off in pCP)' : ' (not a piCorePlayer)');
+        o.disabled = p.status !== 'ok';
+        sel.appendChild(o);
+      });
+      if (!usable.length) {
+        $('eq').classList.add('hidden');
+        status(players.length ? 'No player has the piCorePlayer equaliser switched on (pCP: Tweaks > Use 10 band ALSA equalizer).'
+                              : 'No players are connected.', 'err');
+        return;
+      }
+      var want = store('pcpeq.player');
+      var pick = usable.filter(function (p) { return p.id === want; })[0] || usable[0];
+      sel.value = pick.id;
+      select(pick);
+    }).catch(function (e) { status('Could not list players: ' + e.message, 'err'); });
+  }
+
+  function select(p) {
+    flushSave();
+    current = p; values = p.values.slice();
+    store('pcpeq.player', p.id);
+    buildBands(); renderAll();
+    var ps = $('presets'); ps.innerHTML = '<option value="">pCP presets…</option>';
+    (p.presets || []).forEach(function (pr) {
+      var o = document.createElement('option'); o.value = pr.values.join(','); o.textContent = pr.name; ps.appendChild(o);
+    });
+    $('eq').classList.remove('hidden');
+    status(p.name + (p.pcp ? ' · piCorePlayer ' + p.pcp : '') + ' · ' + p.ip);
+  }
+
+  // ── Sliders ──
+  function buildBands() {
+    var box = $('bands'); box.innerHTML = '';
+    BANDS.forEach(function (name, i) {
+      var row = document.createElement('div'); row.className = 'band';
+      row.innerHTML = '<label for="b' + i + '">' + name + '</label>' +
+        '<span class="db"></span>' +
+        '<button class="down" aria-label="' + name + ' down">−</button>' +
+        '<button class="up" aria-label="' + name + ' up">+</button>' +
+        '<input type="range" id="b' + i + '" min="0" max="100" step="1">';
+      var input = row.querySelector('input'), btns = row.querySelectorAll('button');
+      input.addEventListener('input', function () { change(i, +input.value); });
+      btns[0].addEventListener('click', function () { change(i, values[i] - 1); });
+      btns[1].addEventListener('click', function () { change(i, values[i] + 1); });
+      box.appendChild(row);
+    });
+  }
+
+  function change(i, v) {
+    v = Math.max(0, Math.min(100, v));
+    if (values[i] === v) return;
+    values[i] = v; renderAll(); scheduleApply();
+  }
+
+  function setAll(list) { values = list.slice(); renderAll(); scheduleApply(); }
+
+  function renderAll() {
+    var rows = $('bands').children;
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].querySelector('input').value = values[i];
+      var db = rows[i].querySelector('.db');
+      db.textContent = dbText(values[i]);
+      db.className = 'db' + (values[i] > FLAT ? ' boost' : '');
+    }
+    $('boostnote').classList.toggle('hidden', Math.max.apply(null, values) <= FLAT + 4);
+    var orig = current && current.original;
+    $('restore').classList.toggle('hidden', !orig || orig.values.join() === values.join());
+    drawCurve();
+  }
+
+  function drawCurve() {
+    var w = 300, h = 120, pad = 10, min = FLAT - 25, max = FLAT + 25;
+    var y = function (v) { v = Math.max(min, Math.min(max, v)); return h - pad - (v - min) / (max - min) * (h - 2 * pad); };
+    var x = function (i) { return pad + i * (w - 2 * pad) / (BANDS.length - 1); };
+    var pts = values.map(function (v, i) { return x(i).toFixed(1) + ',' + y(v).toFixed(1); }).join(' ');
+    $('curve').innerHTML =
+      '<line x1="0" x2="' + w + '" y1="' + y(FLAT) + '" y2="' + y(FLAT) + '" stroke="var(--flat)" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>' +
+      '<polyline points="' + pts + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+  }
+
+  // ── Applying and saving ──
+  // While you drag, the latest values go to the player at most every 150 ms
+  // (pCP "Test"); 4 s after the last change they are saved (pCP "Save").
+  function scheduleApply() {
+    dirtySinceSave = true;
+    clearTimeout(saveTimer);
+    if (applying) { applyQueued = true; return; }
+    clearTimeout(applyTimer);
+    applyTimer = setTimeout(apply, Math.max(0, APPLY_EVERY_MS - (Date.now() - lastApply)));
+  }
+
+  function send(action, keepalive) {
+    var q = 'set?player=' + encodeURIComponent(current.id) + '&values=' + values.join(',') +
+            '&device=' + encodeURIComponent(current.device || 'equal') + '&action=' + action;
+    if (keepalive) { try { fetch(API + q, { keepalive: true }); } catch (e) {} return Promise.resolve(); }
+    return api(q);
+  }
+
+  function apply() {
+    applying = true; lastApply = Date.now();
+    send('Test').then(function () {
+      status('Playing these settings…');
+    }).catch(function (e) {
+      status('Could not reach ' + current.name + ': ' + e.message, 'err');
+    }).then(function () {
+      applying = false;
+      if (applyQueued) { applyQueued = false; scheduleApply(); return; }
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(save, SAVE_AFTER_MS);
+    });
+  }
+
+  function save() {
+    if (!dirtySinceSave || applying) return;
+    status('Saving…');
+    send('Save').then(function () {
+      dirtySinceSave = false;
+      current.values = values.slice();
+      status('Saved on ' + current.name + ' - kept after a restart.', 'ok');
+    }).catch(function (e) { status('Saving failed: ' + e.message + ' (it is still playing like this)', 'err'); });
+  }
+
+  // Leaving or switching player with unsaved changes: save right away.
+  function flushSave() {
+    if (current && dirtySinceSave) { clearTimeout(saveTimer); send('Save', true); dirtySinceSave = false; }
+  }
+  window.addEventListener('pagehide', flushSave);
+
+  // ── Controls ──
+  $('player').addEventListener('change', function () {
+    var p = players.filter(function (x) { return x.id === $('player').value; })[0];
+    if (p) select(p);
+  });
+  $('reload').addEventListener('click', function () { flushSave(); loadPlayers(); });
+  $('flat').addEventListener('click', function () { setAll(BANDS.map(function () { return FLAT; })); });
+  $('restore').addEventListener('click', function () { if (current.original) setAll(current.original.values); });
+  $('presets').addEventListener('change', function () {
+    var v = $('presets').value; $('presets').value = '';
+    if (v) setAll(v.split(',').map(Number));
+  });
+
+  loadPlayers();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<extension>
+    <name>PLUGIN_PCPEQUALISER</name>
+    <module>Plugins::PcpEqualiser::Plugin</module>
+    <version>0.1.0</version>
+    <description>PLUGIN_PCPEQUALISER_DESC</description>
+    <icon>plugins/PcpEqualiser/html/PcpEqualiser_svg.png</icon>
+    <iconsvg>plugins/PcpEqualiser/html/PcpEqualiser.svg</iconsvg>
+    <optionsURL>plugins/PcpEqualiser/index.html</optionsURL>
+    <defaultState>enabled</defaultState>
+    <targetApplication>
+        <id>SlimServer</id>
+        <minVersion>8.0</minVersion>
+        <maxVersion>*</maxVersion>
+    </targetApplication>
+    <creator>Nikolaj Christensen</creator>
+    <category>tools</category>
+</extension>
