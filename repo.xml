@@ -4,14 +4,14 @@
     <title lang="EN">Player Equaliser for piCorePlayer</title>
   </details>
   <plugins>
-    <plugin name="PcpEqualiser" version="0.4.0" minTarget="8.0" maxTarget="*">
+    <plugin name="PcpEqualiser" version="0.4.1" minTarget="8.0" maxTarget="*">
       <title lang="EN">Player Equaliser</title>
       <desc lang="EN">Live 10-band equaliser for piCorePlayer players: changes play while you drag the sliders.</desc>
       <changes lang="EN">Fixed: a slider could jump to 100 when you pressed its handle (values reached the page as text after a player was first seen or after a Lyrion restart).</changes>
       <creator>NikolajChristensen</creator>
       <category>tools</category>
-      <url>https://github.com/NikolajChristensen/lms-pcp-eq/releases/download/v0.4.0/PcpEqualiser-0.4.0.zip</url>
-      <sha>b9898b15576f5b5628ef6ac1c47908cfc06e0b90</sha>
+      <url>https://github.com/NikolajChristensen/lms-pcp-eq/releases/download/v0.4.1/PcpEqualiser-0.4.1.zip</url>
+      <sha>e51784c1c844dc7a3e217249ff27d59d107118e5</sha>
     </plugin>
   </plugins>
 </extensions>
