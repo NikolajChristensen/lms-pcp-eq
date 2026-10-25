@@ -1,2 +1,8 @@
 *.zip
 dist/
+.env
+.env.*
+*.token
+secrets.yaml
+__pycache__/
+*.pyc
