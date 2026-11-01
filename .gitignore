@@ -6,3 +6,4 @@ dist/
 secrets.yaml
 __pycache__/
 *.pyc
+backups/
